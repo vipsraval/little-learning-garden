@@ -6,6 +6,9 @@ let garden;
 let lesson;
 let roundIndex = 0;
 let finishedRound = false;
+let answered = 0;
+let sessionStartedAt = 0;
+let timerId;
 
 function stored(key) {
   try { return localStorage.getItem(key); } catch { return null; }
@@ -41,6 +44,34 @@ function makeButton(label,action) {
   button.textContent = label;
   button.onclick = action;
   return button;
+}
+
+function stopTimer() {
+  if (timerId) clearInterval(timerId);
+  timerId = undefined;
+}
+
+function updateTime() {
+  const seconds = Math.max(0,Math.floor((Date.now()-sessionStartedAt)/1000));
+  const minutes = Math.floor(seconds/60);
+  element('elapsed').textContent = String(minutes).padStart(2,'0')+':'+String(seconds%60).padStart(2,'0');
+}
+
+function updateTracker() {
+  const total = lesson.rounds.length;
+  const percentage = Math.round(answered/total*100);
+  element('answered').textContent = answered+' / '+total;
+  element('points').textContent = percentage+' / 100';
+  element('progressFill').style.width = percentage+'%';
+}
+
+function startTracker() {
+  stopTimer();
+  answered = 0;
+  sessionStartedAt = Date.now();
+  updateTime();
+  updateTracker();
+  timerId = setInterval(updateTime,1000);
 }
 
 function renderCountRound(current) {
@@ -102,9 +133,14 @@ function renderTenFrameRound(current) {
 
 function finishRound(message) {
   finishedRound = true;
+  answered++;
+  updateTracker();
   announce(message);
   const last = roundIndex === lesson.rounds.length-1;
-  if (last) store('garden.done.'+lesson.id,'yes');
+  if (last) {
+    store('garden.done.'+lesson.id,'yes');
+    stopTimer();
+  }
   element('next').textContent = last ? 'Back to my garden' : 'Next garden';
   element('next').hidden = false;
 }
@@ -169,8 +205,9 @@ function navigate() {
   if (page === 'lesson') {
     roundIndex = 0;
     element('lessonTitle').textContent = lesson.title;
+    startTracker();
     renderRound();
-  }
+  } else stopTimer();
   window.scrollTo(0,0);
 }
 
