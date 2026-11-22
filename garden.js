@@ -9,6 +9,14 @@ let finishedRound = false;
 let answered = 0;
 let sessionStartedAt = 0;
 let timerId;
+let celebrationRun = 0;
+const successPhrases = [
+  'Excellent!', 'You did it!', 'Wonderful work!', 'Amazing counting!',
+  'Great job!', 'Brilliant!', 'Super thinking!', 'Fantastic!',
+  'Terrific work!', 'You are a maths star!', 'Beautiful counting!', 'Way to go!',
+  'Outstanding!', 'Clever work!', 'You kept going!', 'That was awesome!',
+  'Remarkable!', 'What a great effort!', 'Magnificent!', 'Garden complete!'
+];
 
 function stored(key) {
   try { return localStorage.getItem(key); } catch { return null; }
@@ -44,6 +52,37 @@ function makeButton(label,action) {
   button.textContent = label;
   button.onclick = action;
   return button;
+}
+
+function celebrate() {
+  if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+  const layer = element('celebration');
+  const symbols = ['★','✦','✧','●','◆','—'];
+  const colors = ['#e86f51','#f2b84b','#66a96b','#46a9bd','#9368b7'];
+  const run = ++celebrationRun;
+  layer.replaceChildren();
+  for (let index=0; index<34; index++) {
+    const piece = document.createElement('span');
+    const angle = Math.PI*2*index/34+(Math.random()-.5)*.22;
+    const distance = 130+Math.random()*270;
+    piece.className = 'celebration-piece';
+    piece.textContent = symbols[index%symbols.length];
+    piece.style.color = colors[index%colors.length];
+    layer.append(piece);
+    piece.animate([
+      {opacity:0,transform:'translate(-50%,-50%) scale(.3) rotate(0deg)'},
+      {opacity:1,offset:.14},
+      {opacity:0,transform:'translate(calc(-50% + '+Math.cos(angle)*distance+'px),calc(-50% + '+Math.sin(angle)*distance+'px)) scale(1.1) rotate('+(180+Math.random()*360)+'deg)'}
+    ],{
+      duration:950+Math.random()*450,
+      delay:Math.random()*120,
+      easing:'cubic-bezier(.16,.72,.28,1)',
+      fill:'forwards'
+    });
+  }
+  setTimeout(() => {
+    if (run===celebrationRun) layer.replaceChildren();
+  },1600);
 }
 
 function stopTimer() {
@@ -135,7 +174,10 @@ function finishRound(message) {
   finishedRound = true;
   answered++;
   updateTracker();
-  announce(message);
+  const praise = successPhrases[roundIndex%successPhrases.length]+' '+message;
+  element('feedback').classList.add('success-feedback');
+  celebrate();
+  announce(praise);
   const last = roundIndex === lesson.rounds.length-1;
   if (last) {
     store('garden.done.'+lesson.id,'yes');
@@ -151,6 +193,7 @@ function renderRound() {
   element('round').textContent = 'Garden '+(roundIndex+1)+' of '+lesson.rounds.length;
   element('prompt').textContent = current.prompt;
   element('feedback').textContent = current.instruction;
+  element('feedback').classList.remove('success-feedback');
   element('next').hidden = true;
   element('bugs').replaceChildren();
   element('bugs').classList.remove('ten-frame');
