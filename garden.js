@@ -3,7 +3,9 @@ const element = id => document.getElementById(id);
 const tokenKey = 'little-learning-garden.readonly';
 const url = 'https://api.github.com/repos/vipsraval/little-learning-garden-lessons/contents/maths/garden.json?ref=main';
 let garden;
+let subject;
 let lesson;
+let currentRound;
 let roundIndex = 0;
 let finishedRound = false;
 let answered = 0;
@@ -33,18 +35,21 @@ function isComplete(item) {
   return stored('garden.done.'+item.id) === 'yes';
 }
 
-function speak(text) {
+function speak(text,language=lesson?.voiceLanguage||'en-US') {
   if (!window.speechSynthesis) return;
   speechSynthesis.cancel();
   const voice = new SpeechSynthesisUtterance(text);
-  voice.lang = 'en-US';
+  voice.lang = language;
   voice.rate = 0.86;
+  const languageCode = language.split('-')[0].toLowerCase();
+  const matchingVoice = speechSynthesis.getVoices().find(item => item.lang.toLowerCase().startsWith(languageCode));
+  if (matchingVoice) voice.voice = matchingVoice;
   speechSynthesis.speak(voice);
 }
 
-function announce(message) {
+function announce(message,spokenMessage=message) {
   element('feedback').textContent = message;
-  speak(message);
+  speak(spokenMessage);
 }
 
 function makeButton(label,action) {
@@ -133,10 +138,11 @@ function renderCountRound(current) {
   for (const value of current.choices) element('choices').append(makeButton(value, () => {
     if (finishedRound) return;
     if (value !== current.count) {
-      announce(marked === current.count ? lesson.countedHint : current.hint);
+      const hint = marked === current.count ? lesson.countedHint : current.hint;
+      announce(hint,current.hintSpoken||hint);
       return;
     }
-    finishRound(current.praise);
+    finishRound(current.praise,current.praiseSpoken);
   }));
 }
 
@@ -163,21 +169,45 @@ function renderTenFrameRound(current) {
   element('choices').append(makeButton('Done', () => {
     if (finishedRound) return;
     if (planted !== current.count) {
-      announce(current.hint+' You have '+planted+'.');
+      announce(current.hint+' You have '+planted+'.',current.hintSpoken||current.hint+' You have '+planted+'.');
       return;
     }
-    finishRound(current.praise);
+    finishRound(current.praise,current.praiseSpoken);
   }));
 }
 
-function finishRound(message) {
+function renderLetterRound(current) {
+  const board = element('bugs');
+  board.classList.add('letter-board');
+  const display = document.createElement('div');
+  display.className = current.display.length>2 ? 'letter-display word-display' : 'letter-display';
+  display.textContent = current.display;
+  board.append(display);
+  for (const value of current.choices) {
+    const choice = makeButton(value,() => {
+      if (finishedRound) return;
+      if (value!==current.target) {
+        announce(current.hint,current.hintSpoken||current.hint);
+        return;
+      }
+      finishRound(current.praise,current.praiseSpoken);
+    });
+    choice.className = 'letter-choice';
+    choice.setAttribute('aria-label','Gujarati letter '+value);
+    element('choices').append(choice);
+  }
+}
+
+function finishRound(message,spokenMessage=message) {
   finishedRound = true;
   answered++;
   updateTracker();
-  const praise = successPhrases[roundIndex%successPhrases.length]+' '+message;
+  const phrases = lesson.successPhrases||successPhrases;
+  const praisePrefix = phrases[roundIndex%phrases.length];
+  const praise = praisePrefix+' '+message;
   element('feedback').classList.add('success-feedback');
   celebrate();
-  announce(praise);
+  announce(praise,praisePrefix+' '+spokenMessage);
   const last = roundIndex === lesson.rounds.length-1;
   if (last) {
     store('garden.done.'+lesson.id,'yes');
@@ -189,6 +219,7 @@ function finishRound(message) {
 
 function renderRound() {
   const current = lesson.rounds[roundIndex];
+  currentRound = current;
   finishedRound = false;
   element('round').textContent = 'Garden '+(roundIndex+1)+' of '+lesson.rounds.length;
   element('prompt').textContent = current.prompt;
@@ -196,10 +227,19 @@ function renderRound() {
   element('feedback').classList.remove('success-feedback');
   element('next').hidden = true;
   element('bugs').replaceChildren();
-  element('bugs').classList.remove('ten-frame');
+  element('bugs').classList.remove('ten-frame','letter-board');
   element('choices').replaceChildren();
   if (lesson.activity === 'ten-frame') renderTenFrameRound(current);
+  else if (lesson.activity === 'letter-choice') renderLetterRound(current);
   else renderCountRound(current);
+}
+
+function subjectForLesson(item) {
+  return garden.subjects.find(entry => entry.id===(item.subject||garden.defaultSubjectId));
+}
+
+function lessonsForSubject(item) {
+  return garden.lessons.filter(entry => (entry.subject||garden.defaultSubjectId)===item.id);
 }
 
 function lessonLink(item) {
@@ -222,7 +262,7 @@ function lessonCard(item) {
 
 function search() {
   const term = element('search').value.toLowerCase().trim();
-  const matches = garden.lessons.filter(item => (item.title+' '+item.skill).toLowerCase().includes(term));
+  const matches = lessonsForSubject(subject).filter(item => (item.title+' '+item.skill).toLowerCase().includes(term));
   element('catalog').replaceChildren(...matches.map(lessonCard));
   if (!matches.length) element('catalog').textContent = 'No matching lessons.';
 }
@@ -231,26 +271,48 @@ function navigate() {
   window.speechSynthesis?.cancel();
   const route = location.hash.slice(1).split('/');
   let page = route[0];
-  if (!['lesson','skills'].includes(page)) page = 'home';
+  if (!['lesson','skills','subject'].includes(page)) page = 'subject';
   if (!garden) page = 'gate';
-  if (page === 'lesson') lesson = garden.lessons.find(item => item.id === route[1]) || garden.lessons[0];
+  if (page === 'lesson') {
+    lesson = garden.lessons.find(item => item.id===route[1])||garden.lessons[0];
+    subject = subjectForLesson(lesson);
+  } else if (page!=='gate') {
+    subject = garden.subjects.find(item => item.id===route[1])||garden.subjects.find(item => item.id===garden.defaultSubjectId);
+    page = page==='skills' ? 'skills' : 'home';
+  }
   for (const id of ['gate','home','skills','lesson']) element(id).hidden = id !== page;
   element('nav').hidden = !garden;
   if (page === 'home') {
-    const featured = garden.lessons.find(item => item.id === garden.featuredLessonId) || garden.lessons[0];
+    const featured = garden.lessons.find(item => item.id===subject.featuredLessonId)||lessonsForSubject(subject)[0];
+    element('homeKicker').textContent = subject.eyebrow;
+    element('homeTitle').textContent = subject.homeTitle;
+    element('pathTitle').textContent = subject.pathTitle;
+    element('viewSkills').href = '#skills/'+subject.id;
     element('title').textContent = featured.title;
     element('summary').textContent = featured.summary;
     element('start').textContent = isComplete(featured) ? 'Play again' : 'Start lesson';
     element('start').href = '#lesson/'+featured.id;
-    element('path').replaceChildren(...garden.lessons.map(lessonCard));
+    element('path').replaceChildren(...lessonsForSubject(subject).map(lessonCard));
   }
-  if (page === 'skills') search();
+  if (page === 'skills') {
+    element('skillsKicker').textContent = subject.eyebrow;
+    element('skillsTitle').textContent = subject.libraryTitle;
+    search();
+  }
   if (page === 'lesson') {
     roundIndex = 0;
+    element('lessonKicker').textContent = subject.eyebrow;
     element('lessonTitle').textContent = lesson.title;
+    element('listen').textContent = subject.id==='gujarati' ? '🔊 સાંભળો' : '🔊 Read to me';
     startTracker();
     renderRound();
   } else stopTimer();
+  element('brand').href = '#subject/'+(subject?.id||garden?.defaultSubjectId||'maths');
+  element('skillNav').href = '#skills/'+(subject?.id||garden?.defaultSubjectId||'maths');
+  for (const link of document.querySelectorAll('[data-subject]')) {
+    if (link.dataset.subject===subject?.id) link.setAttribute('aria-current','page');
+    else link.removeAttribute('aria-current');
+  }
   window.scrollTo(0,0);
 }
 
@@ -266,7 +328,7 @@ async function unlock(token,remember) {
       ? 'Access unavailable. Check the token’s expiry and read access to the lessons repository.'
       : 'GitHub is unavailable. Please try again.');
     const data = await response.json();
-    if (!Array.isArray(data.lessons) || !data.lessons.length) throw new Error('The lessons could not be loaded.');
+    if (!Array.isArray(data.subjects) || !data.subjects.length || !Array.isArray(data.lessons) || !data.lessons.length) throw new Error('The lessons could not be loaded.');
     garden = data;
     store(tokenKey,remember ? token : null);
     element('key').value = '';
@@ -286,14 +348,14 @@ element('lock').onclick = () => {
   location.replace(location.pathname);
 };
 element('next').onclick = () => {
-  if (roundIndex === lesson.rounds.length-1) location.hash = 'home';
+  if (roundIndex === lesson.rounds.length-1) location.hash = 'subject/'+subject.id;
   else {
     roundIndex++;
     renderRound();
-    speak(lesson.rounds[roundIndex].prompt+' '+lesson.rounds[roundIndex].instruction);
+    speak(currentRound.spokenInstruction||currentRound.prompt+' '+currentRound.instruction);
   }
 };
-element('listen').onclick = () => speak(element('prompt').textContent+' '+element('feedback').textContent);
+element('listen').onclick = () => speak(currentRound.spokenInstruction||currentRound.prompt+' '+currentRound.instruction);
 element('search').oninput = search;
 window.addEventListener('hashchange',navigate);
 navigate();
