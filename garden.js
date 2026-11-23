@@ -12,6 +12,7 @@ let answered = 0;
 let sessionStartedAt = 0;
 let timerId;
 let celebrationRun = 0;
+let activeAudio;
 const successPhrases = [
   'Excellent!', 'You did it!', 'Wonderful work!', 'Amazing counting!',
   'Great job!', 'Brilliant!', 'Super thinking!', 'Fantastic!',
@@ -35,9 +36,26 @@ function isComplete(item) {
   return stored('garden.done.'+item.id) === 'yes';
 }
 
-function speak(text,language=lesson?.voiceLanguage||'en-US') {
+function stopVoice() {
+  window.speechSynthesis?.cancel();
+  if (activeAudio) {
+    activeAudio.pause();
+    activeAudio.currentTime = 0;
+    activeAudio = undefined;
+  }
+}
+
+function speak(text,language=lesson?.voiceLanguage||'en-US',audioKind) {
+  stopVoice();
+  if (lesson?.audioBase && audioKind) {
+    const number = String(roundIndex+1).padStart(2,'0');
+    activeAudio = new Audio('audio/gujarati/'+lesson.audioBase+'/'+number+'-'+audioKind+'.mp3?v=20261123-1');
+    activeAudio.play().catch(() => {
+      element('feedback').textContent += ' Tap Listen to hear it again.';
+    });
+    return;
+  }
   if (!window.speechSynthesis) return;
-  speechSynthesis.cancel();
   const voice = new SpeechSynthesisUtterance(text);
   voice.lang = language;
   voice.rate = 0.86;
@@ -47,9 +65,9 @@ function speak(text,language=lesson?.voiceLanguage||'en-US') {
   speechSynthesis.speak(voice);
 }
 
-function announce(message,spokenMessage=message) {
+function announce(message,spokenMessage=message,audioKind) {
   element('feedback').textContent = message;
-  speak(spokenMessage);
+  speak(spokenMessage,lesson?.voiceLanguage||'en-US',audioKind);
 }
 
 function makeButton(label,action) {
@@ -187,7 +205,7 @@ function renderLetterRound(current) {
     const choice = makeButton(value,() => {
       if (finishedRound) return;
       if (value!==current.target) {
-        announce(current.hint,current.hintSpoken||current.hint);
+        announce(current.hint,current.hintSpoken||current.hint,'hint');
         return;
       }
       finishRound(current.praise,current.praiseSpoken);
@@ -196,6 +214,92 @@ function renderLetterRound(current) {
     choice.setAttribute('aria-label','Gujarati letter '+value);
     element('choices').append(choice);
   }
+}
+
+function prepareMathRound(current) {
+  if (lesson.activity === 'compare') {
+    const same = current.left===current.right;
+    current.target = same ? 'same' : current.mode==='more'
+      ? (current.left>current.right ? 'left' : 'right')
+      : (current.left<current.right ? 'left' : 'right');
+    current.prompt = same ? 'Are these groups equal?' : 'Which group has '+current.mode+'?';
+    current.instruction = same
+      ? 'Count both flower groups. If they have the same number, choose Same.'
+      : 'Count both flower groups. Tap the group with '+current.mode+'.';
+    current.hint = 'Try again. Count the left group, then count the right group.';
+    current.praise = same
+      ? 'Equal! Both groups have '+current.left+'.'
+      : 'Yes! The '+current.target+' group has '+current.mode+'.';
+  }
+  if (lesson.activity === 'addition') {
+    current.target = current.left+current.right;
+    current.prompt = 'How many altogether?';
+    current.instruction = 'Join the two groups. Count all the garden friends, then choose the total.';
+    current.hint = 'Try again. Start with '+current.left+' and count on '+current.right+' more.';
+    current.praise = current.left+' plus '+current.right+' equals '+current.target+'.';
+  }
+  if (lesson.activity === 'subtraction') {
+    current.target = current.left-current.right;
+    current.prompt = 'How many are left?';
+    current.instruction = 'Some garden friends went away. Count the friends that remain.';
+    current.hint = 'Try again. Start with '+current.left+' and take away '+current.right+'.';
+    current.praise = current.left+' minus '+current.right+' equals '+current.target+'.';
+  }
+}
+
+function checkMathAnswer(value,current) {
+  if (finishedRound) return;
+  if (value!==current.target) {
+    announce(current.hint);
+    return;
+  }
+  finishRound(current.praise);
+}
+
+function makeGroup(count,label,action) {
+  const group = makeButton('',action);
+  group.className = 'group-card';
+  group.setAttribute('aria-label',label+' group with '+count+' flowers');
+  const name = document.createElement('strong');
+  name.textContent = label;
+  const flowers = document.createElement('span');
+  flowers.textContent = '🌼'.repeat(count);
+  group.append(name,flowers);
+  return group;
+}
+
+function renderCompareRound(current) {
+  const board = element('bugs');
+  board.classList.add('math-board','compare-board');
+  board.append(
+    makeGroup(current.left,'Left',() => checkMathAnswer('left',current)),
+    makeGroup(current.right,'Right',() => checkMathAnswer('right',current))
+  );
+  const same = makeButton('Same',() => checkMathAnswer('same',current));
+  same.className = 'same-choice';
+  element('choices').append(same);
+}
+
+function renderEquationRound(current) {
+  const board = element('bugs');
+  board.classList.add('math-board','equation-board');
+  const picture = document.createElement('div');
+  picture.className = 'equation-picture';
+  if (lesson.activity==='addition') {
+    picture.innerHTML = '<span>'+lesson.symbol.replace('➕','🐝').repeat(current.left)+'</span><b>+</b><span>'+lesson.symbol.replace('➕','🐝').repeat(current.right)+'</span>';
+  } else {
+    for (let index=0; index<current.left; index++) {
+      const friend = document.createElement('span');
+      friend.textContent = '🐸';
+      if (index>=current.target) friend.className = 'went-away';
+      picture.append(friend);
+    }
+  }
+  const equation = document.createElement('div');
+  equation.className = 'equation-text';
+  equation.textContent = current.left+(lesson.activity==='addition' ? ' + ' : ' − ')+current.right+' = ?';
+  board.append(picture,equation);
+  for (const value of current.choices) element('choices').append(makeButton(value,() => checkMathAnswer(value,current)));
 }
 
 function finishRound(message,spokenMessage=message) {
@@ -207,7 +311,7 @@ function finishRound(message,spokenMessage=message) {
   const praise = praisePrefix+' '+message;
   element('feedback').classList.add('success-feedback');
   celebrate();
-  announce(praise,praisePrefix+' '+spokenMessage);
+  announce(praise,praisePrefix+' '+spokenMessage,'praise');
   const last = roundIndex === lesson.rounds.length-1;
   if (last) {
     store('garden.done.'+lesson.id,'yes');
@@ -219,6 +323,7 @@ function finishRound(message,spokenMessage=message) {
 
 function renderRound() {
   const current = lesson.rounds[roundIndex];
+  prepareMathRound(current);
   currentRound = current;
   finishedRound = false;
   element('round').textContent = 'Garden '+(roundIndex+1)+' of '+lesson.rounds.length;
@@ -227,10 +332,12 @@ function renderRound() {
   element('feedback').classList.remove('success-feedback');
   element('next').hidden = true;
   element('bugs').replaceChildren();
-  element('bugs').classList.remove('ten-frame','letter-board');
+  element('bugs').classList.remove('ten-frame','letter-board','math-board','compare-board','equation-board');
   element('choices').replaceChildren();
   if (lesson.activity === 'ten-frame') renderTenFrameRound(current);
   else if (lesson.activity === 'letter-choice') renderLetterRound(current);
+  else if (lesson.activity === 'compare') renderCompareRound(current);
+  else if (lesson.activity === 'addition' || lesson.activity === 'subtraction') renderEquationRound(current);
   else renderCountRound(current);
 }
 
@@ -268,7 +375,7 @@ function search() {
 }
 
 function navigate() {
-  window.speechSynthesis?.cancel();
+  stopVoice();
   const route = location.hash.slice(1).split('/');
   let page = route[0];
   if (!['lesson','skills','subject'].includes(page)) page = 'subject';
@@ -352,10 +459,10 @@ element('next').onclick = () => {
   else {
     roundIndex++;
     renderRound();
-    speak(currentRound.spokenInstruction||currentRound.prompt+' '+currentRound.instruction);
+    speak(currentRound.spokenInstruction||currentRound.prompt+' '+currentRound.instruction,lesson.voiceLanguage||'en-US','instruction');
   }
 };
-element('listen').onclick = () => speak(currentRound.spokenInstruction||currentRound.prompt+' '+currentRound.instruction);
+element('listen').onclick = () => speak(currentRound.spokenInstruction||currentRound.prompt+' '+currentRound.instruction,lesson.voiceLanguage||'en-US','instruction');
 element('search').oninput = search;
 window.addEventListener('hashchange',navigate);
 navigate();
