@@ -1,6 +1,8 @@
 'use strict';
 const element = id => document.getElementById(id);
 const tokenKey = 'little-learning-garden.readonly';
+const lastLessonKey = 'garden.lastLesson';
+const defaultLessonId = 'gujarati-alphabet-picture-cards';
 const url = 'https://api.github.com/repos/vipsraval/little-learning-garden-lessons/contents/maths/garden.json?ref=main';
 let garden;
 let subject;
@@ -51,7 +53,7 @@ function speak(text,language=lesson?.voiceLanguage||'en-US',audioKind) {
     const storedAudioIndex = lesson.audioOrder?.indexOf(currentRound?.letter);
     const audioNumber = storedAudioIndex>=0 ? storedAudioIndex+1 : roundIndex+1;
     const number = String(audioNumber).padStart(2,'0');
-    activeAudio = new Audio('audio/gujarati/'+lesson.audioBase+'/'+number+'-'+audioKind+'.mp3?v=20261123-3');
+    activeAudio = new Audio('audio/gujarati/'+lesson.audioBase+'/'+number+'-'+audioKind+'.mp3?v=20261124-1');
     activeAudio.play().catch(() => {
       element('feedback').textContent += ' Tap Listen to hear it again.';
     });
@@ -406,6 +408,32 @@ function renderRound() {
   else if (lesson.activity === 'compare') renderCompareRound(current);
   else if (lesson.activity === 'addition' || lesson.activity === 'subtraction') renderEquationRound(current);
   else renderCountRound(current);
+  if (!element('parentTools').hidden) element('letterJump').value = String(roundIndex);
+}
+
+function prepareParentTools() {
+  const isAlphabet = lesson.activity==='alphabet-card';
+  element('parentTools').hidden = !isAlphabet;
+  if (!isAlphabet) return;
+  element('letterJump').replaceChildren(...lesson.rounds.map((item,index) => {
+    const option = document.createElement('option');
+    option.value = String(index);
+    option.textContent = item.letter+' — '+item.word;
+    return option;
+  }));
+  element('letterJump').value = String(roundIndex);
+}
+
+function jumpToAlphabetRound(index) {
+  if (lesson.activity!=='alphabet-card' || !Number.isInteger(index) || index<0 || index>=lesson.rounds.length) return;
+  store('garden.done.'+lesson.id,null);
+  store('garden.round.'+lesson.id,String(index));
+  store(lastLessonKey,lesson.id);
+  roundIndex = index;
+  startTracker(roundIndex);
+  renderRound();
+  speak(currentRound.spokenInstruction,currentRound.voiceLanguage||lesson.voiceLanguage,'instruction');
+  window.scrollTo({top:0,behavior:'smooth'});
 }
 
 function subjectForLesson(item) {
@@ -476,13 +504,18 @@ function navigate() {
   if (page === 'lesson') {
     const savedRound = Number(stored('garden.round.'+lesson.id));
     roundIndex = !isComplete(lesson) && Number.isInteger(savedRound) && savedRound>0 && savedRound<lesson.rounds.length ? savedRound : 0;
+    store(lastLessonKey,lesson.id);
     element('lessonKicker').textContent = subject.eyebrow;
     element('lessonTitle').textContent = lesson.title;
     element('listen').textContent = subject.id==='gujarati' ? '🔊 સાંભળો' : '🔊 Read to me';
     document.querySelector('.tracker-finished span').textContent = lesson.activity==='alphabet-card' ? 'Letters learned' : 'Gardens finished';
     startTracker(roundIndex);
+    prepareParentTools();
     renderRound();
-  } else stopTimer();
+  } else {
+    element('parentTools').hidden = true;
+    stopTimer();
+  }
   element('brand').href = '#subject/'+(subject?.id||garden?.defaultSubjectId||'maths');
   element('skillNav').href = '#skills/'+(subject?.id||garden?.defaultSubjectId||'maths');
   for (const link of document.querySelectorAll('[data-subject]')) {
@@ -509,7 +542,13 @@ async function unlock(token,remember) {
     store(tokenKey,remember ? token : null);
     element('key').value = '';
     element('status').textContent = '';
-    navigate();
+    if (!location.hash) {
+      const savedLessonId = stored(lastLessonKey);
+      const resumeLesson = data.lessons.find(item => item.id===savedLessonId)
+        || data.lessons.find(item => item.id===defaultLessonId)
+        || data.lessons[0];
+      location.hash = 'lesson/'+resumeLesson.id;
+    } else navigate();
   } catch (error) {
     element('status').textContent = error instanceof TypeError ? 'Could not connect. Check your internet connection and try again.' : error.message;
   } finally { element('open').disabled = false; }
@@ -532,6 +571,8 @@ element('next').onclick = () => {
   }
 };
 element('listen').onclick = () => speak(currentRound.spokenInstruction||currentRound.prompt+' '+currentRound.instruction,lesson.voiceLanguage||'en-US','instruction');
+element('jumpLetter').onclick = () => jumpToAlphabetRound(Number(element('letterJump').value));
+element('restartAlphabet').onclick = () => jumpToAlphabetRound(0);
 element('search').oninput = search;
 window.addEventListener('hashchange',navigate);
 navigate();
