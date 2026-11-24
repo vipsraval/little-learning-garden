@@ -48,8 +48,10 @@ function stopVoice() {
 function speak(text,language=lesson?.voiceLanguage||'en-US',audioKind) {
   stopVoice();
   if (lesson?.audioBase && audioKind) {
-    const number = String(roundIndex+1).padStart(2,'0');
-    activeAudio = new Audio('audio/gujarati/'+lesson.audioBase+'/'+number+'-'+audioKind+'.mp3?v=20261123-2');
+    const storedAudioIndex = lesson.audioOrder?.indexOf(currentRound?.letter);
+    const audioNumber = storedAudioIndex>=0 ? storedAudioIndex+1 : roundIndex+1;
+    const number = String(audioNumber).padStart(2,'0');
+    activeAudio = new Audio('audio/gujarati/'+lesson.audioBase+'/'+number+'-'+audioKind+'.mp3?v=20261123-3');
     activeAudio.play().catch(() => {
       element('feedback').textContent += ' Tap Listen to hear it again.';
     });
