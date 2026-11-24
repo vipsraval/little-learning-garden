@@ -2,7 +2,7 @@
 const element = id => document.getElementById(id);
 const tokenKey = 'little-learning-garden.readonly';
 const lastLessonKey = 'garden.lastLesson';
-const defaultLessonId = 'gujarati-alphabet-picture-cards';
+const defaultLessonId = 'gujarati-group-01-ka-nga';
 const url = 'https://api.github.com/repos/vipsraval/little-learning-garden-lessons/contents/maths/garden.json?ref=main';
 let garden;
 let subject;
@@ -53,7 +53,7 @@ function speak(text,language=lesson?.voiceLanguage||'en-US',audioKind) {
     const storedAudioIndex = lesson.audioOrder?.indexOf(currentRound?.letter);
     const audioNumber = storedAudioIndex>=0 ? storedAudioIndex+1 : roundIndex+1;
     const number = String(audioNumber).padStart(2,'0');
-    activeAudio = new Audio('audio/gujarati/'+lesson.audioBase+'/'+number+'-'+audioKind+'.mp3?v=20261124-1');
+    activeAudio = new Audio('audio/gujarati/'+lesson.audioBase+'/'+number+'-'+audioKind+'.mp3?v=20261124-2');
     activeAudio.play().catch(() => {
       element('feedback').textContent += ' Tap Listen to hear it again.';
     });
@@ -235,8 +235,12 @@ function prepareAlphabetRound(current) {
   const shift = roundIndex%choices.length;
   current.choices = choices.slice(shift).concat(choices.slice(0,shift));
   current.target = current.letter;
-  current.prompt = 'Meet '+current.letter;
-  current.instruction = 'Tap the picture to hear it. Then choose '+current.letter+' below.';
+  const pass = current.practicePass||1;
+  const promptStarts = ['Learn ','Find ','Remember ','Test ','Master '];
+  current.prompt = (promptStarts[Math.min(pass-1,promptStarts.length-1)]||'Practise ')+current.letter;
+  current.instruction = pass===1
+    ? 'Tap the picture to hear it. Then choose '+current.letter+' below.'
+    : 'This is practice '+pass+'. Listen, remember, and choose '+current.letter+'.';
   current.spokenInstruction = current.spoken || current.phrase+'. આ અક્ષર '+current.letter+' છે. '+current.letter+' પર ટૅપ કરો.';
   current.hint = 'Listen again and find '+current.letter+'.';
   current.hintSpoken = 'ફરી સાંભળો. '+current.letter+' શોધો.';
@@ -408,20 +412,29 @@ function renderRound() {
   else if (lesson.activity === 'compare') renderCompareRound(current);
   else if (lesson.activity === 'addition' || lesson.activity === 'subtraction') renderEquationRound(current);
   else renderCountRound(current);
-  if (!element('parentTools').hidden) element('letterJump').value = String(roundIndex);
+  if (!element('parentTools').hidden) {
+    const firstMatch = lesson.rounds.findIndex(item => item.letter===current.letter);
+    element('letterJump').value = String(firstMatch);
+  }
 }
 
 function prepareParentTools() {
   const isAlphabet = lesson.activity==='alphabet-card';
   element('parentTools').hidden = !isAlphabet;
   if (!isAlphabet) return;
-  element('letterJump').replaceChildren(...lesson.rounds.map((item,index) => {
+  const uniqueLetters = [];
+  lesson.rounds.forEach((item,index) => {
+    if (!uniqueLetters.some(entry => entry.item.letter===item.letter)) uniqueLetters.push({item,index});
+  });
+  element('letterJump').replaceChildren(...uniqueLetters.map(({item,index}) => {
     const option = document.createElement('option');
     option.value = String(index);
     option.textContent = item.letter+' — '+item.word;
     return option;
   }));
-  element('letterJump').value = String(roundIndex);
+  const firstMatch = lesson.rounds.findIndex(item => item.letter===lesson.rounds[roundIndex].letter);
+  element('letterJump').value = String(firstMatch);
+  element('restartAlphabet').textContent = 'Start from '+lesson.rounds[0].letter;
 }
 
 function jumpToAlphabetRound(index) {
@@ -441,7 +454,25 @@ function subjectForLesson(item) {
 }
 
 function lessonsForSubject(item) {
-  return garden.lessons.filter(entry => (entry.subject||garden.defaultSubjectId)===item.id);
+  return garden.lessons.filter(entry => !entry.hidden && (entry.subject||garden.defaultSubjectId)===item.id);
+}
+
+function hydratePracticeLessons(data) {
+  for (const item of data.lessons) {
+    if (!item.sourceLessonId || !Array.isArray(item.practiceLetters)) continue;
+    const source = data.lessons.find(entry => entry.id===item.sourceLessonId);
+    if (!source || !Array.isArray(source.rounds)) continue;
+    const cards = item.practiceLetters.map(letter => source.rounds.find(card => card.letter===letter)).filter(Boolean);
+    const repeats = item.practiceRepeats||4;
+    item.audioBase = source.audioBase;
+    item.audioOrder = source.audioOrder;
+    item.successPhrases = source.successPhrases;
+    item.voiceLanguage = source.voiceLanguage;
+    item.rounds = [];
+    for (let pass=1; pass<=repeats; pass++) {
+      for (const card of cards) item.rounds.push({...card,practicePass:pass});
+    }
+  }
 }
 
 function lessonLink(item) {
@@ -476,7 +507,9 @@ function navigate() {
   if (!['lesson','skills','subject'].includes(page)) page = 'subject';
   if (!garden) page = 'gate';
   if (page === 'lesson') {
-    lesson = garden.lessons.find(item => item.id===route[1])||garden.lessons[0];
+    lesson = garden.lessons.find(item => item.id===route[1] && !item.hidden)
+      || garden.lessons.find(item => item.id===defaultLessonId)
+      || garden.lessons.find(item => !item.hidden);
     subject = subjectForLesson(lesson);
   } else if (page!=='gate') {
     subject = garden.subjects.find(item => item.id===route[1])||garden.subjects.find(item => item.id===garden.defaultSubjectId);
@@ -538,15 +571,16 @@ async function unlock(token,remember) {
       : 'GitHub is unavailable. Please try again.');
     const data = await response.json();
     if (!Array.isArray(data.subjects) || !data.subjects.length || !Array.isArray(data.lessons) || !data.lessons.length) throw new Error('The lessons could not be loaded.');
+    hydratePracticeLessons(data);
     garden = data;
     store(tokenKey,remember ? token : null);
     element('key').value = '';
     element('status').textContent = '';
     if (!location.hash) {
       const savedLessonId = stored(lastLessonKey);
-      const resumeLesson = data.lessons.find(item => item.id===savedLessonId)
-        || data.lessons.find(item => item.id===defaultLessonId)
-        || data.lessons[0];
+      const resumeLesson = data.lessons.find(item => item.id===savedLessonId && !item.hidden)
+        || data.lessons.find(item => item.id===defaultLessonId && !item.hidden)
+        || data.lessons.find(item => !item.hidden);
       location.hash = 'lesson/'+resumeLesson.id;
     } else navigate();
   } catch (error) {
