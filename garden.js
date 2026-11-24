@@ -49,7 +49,7 @@ function speak(text,language=lesson?.voiceLanguage||'en-US',audioKind) {
   stopVoice();
   if (lesson?.audioBase && audioKind) {
     const number = String(roundIndex+1).padStart(2,'0');
-    activeAudio = new Audio('audio/gujarati/'+lesson.audioBase+'/'+number+'-'+audioKind+'.mp3?v=20261123-1');
+    activeAudio = new Audio('audio/gujarati/'+lesson.audioBase+'/'+number+'-'+audioKind+'.mp3?v=20261123-2');
     activeAudio.play().catch(() => {
       element('feedback').textContent += ' Tap Listen to hear it again.';
     });
@@ -127,9 +127,9 @@ function updateTracker() {
   element('progressFill').style.width = percentage+'%';
 }
 
-function startTracker() {
+function startTracker(initialAnswered=0) {
   stopTimer();
-  answered = 0;
+  answered = initialAnswered;
   sessionStartedAt = Date.now();
   updateTime();
   updateTracker();
@@ -211,6 +211,68 @@ function renderLetterRound(current) {
       finishRound(current.praise,current.praiseSpoken);
     });
     choice.className = 'letter-choice';
+    choice.setAttribute('aria-label','Gujarati letter '+value);
+    element('choices').append(choice);
+  }
+}
+
+function prepareAlphabetRound(current) {
+  if (lesson.activity !== 'alphabet-card') return;
+  const letters = lesson.rounds.map(item => item.letter);
+  const distractors = [
+    letters[(roundIndex+1)%letters.length],
+    letters[(roundIndex+7)%letters.length]
+  ].filter((value,index,list) => value!==current.letter && list.indexOf(value)===index);
+  for (let offset=2; distractors.length<2; offset++) {
+    const candidate = letters[(roundIndex+offset)%letters.length];
+    if (candidate!==current.letter && !distractors.includes(candidate)) distractors.push(candidate);
+  }
+  const choices = [current.letter,...distractors];
+  const shift = roundIndex%choices.length;
+  current.choices = choices.slice(shift).concat(choices.slice(0,shift));
+  current.target = current.letter;
+  current.prompt = 'Meet '+current.letter;
+  current.instruction = 'Tap the picture to hear it. Then choose '+current.letter+' below.';
+  current.spokenInstruction = current.spoken || current.phrase+'. આ અક્ષર '+current.letter+' છે. '+current.letter+' પર ટૅપ કરો.';
+  current.hint = 'Listen again and find '+current.letter+'.';
+  current.hintSpoken = 'ફરી સાંભળો. '+current.letter+' શોધો.';
+  current.praise = current.phrase+'.';
+  current.praiseSpoken = current.phrase+'. અક્ષર ઓળખાઈ ગયો.';
+}
+
+function renderAlphabetRound(current) {
+  const board = element('bugs');
+  board.classList.add('alphabet-board');
+  const card = makeButton('',() => speak(current.spokenInstruction,lesson.voiceLanguage,'instruction'));
+  card.className = 'alphabet-picture-card';
+  card.setAttribute('aria-label','Hear '+current.phrase);
+  const letter = document.createElement('strong');
+  letter.className = 'alphabet-letter';
+  letter.textContent = current.letter;
+  const picture = document.createElement('span');
+  picture.className = 'alphabet-picture';
+  picture.textContent = current.picture;
+  const word = document.createElement('strong');
+  word.className = 'alphabet-word';
+  word.textContent = current.word;
+  const phrase = document.createElement('span');
+  phrase.className = 'alphabet-phrase';
+  phrase.textContent = current.phrase;
+  const listen = document.createElement('span');
+  listen.className = 'alphabet-listen';
+  listen.textContent = '🔊 ચિત્રને સ્પર્શ કરો';
+  card.append(letter,picture,word,phrase,listen);
+  board.append(card);
+  for (const value of current.choices) {
+    const choice = makeButton(value,() => {
+      if (finishedRound) return;
+      if (value!==current.target) {
+        announce(current.hint,current.hintSpoken,'hint');
+        return;
+      }
+      finishRound(current.praise,current.praiseSpoken);
+    });
+    choice.className = 'letter-choice alphabet-choice';
     choice.setAttribute('aria-label','Gujarati letter '+value);
     element('choices').append(choice);
   }
@@ -315,27 +377,30 @@ function finishRound(message,spokenMessage=message) {
   const last = roundIndex === lesson.rounds.length-1;
   if (last) {
     store('garden.done.'+lesson.id,'yes');
+    store('garden.round.'+lesson.id,null);
     stopTimer();
-  }
-  element('next').textContent = last ? 'Back to my garden' : 'Next garden';
+  } else store('garden.round.'+lesson.id,String(roundIndex+1));
+  element('next').textContent = last ? 'Back to my garden' : lesson.activity==='alphabet-card' ? 'Next letter' : 'Next garden';
   element('next').hidden = false;
 }
 
 function renderRound() {
   const current = lesson.rounds[roundIndex];
   prepareMathRound(current);
+  prepareAlphabetRound(current);
   currentRound = current;
   finishedRound = false;
-  element('round').textContent = 'Garden '+(roundIndex+1)+' of '+lesson.rounds.length;
+  element('round').textContent = (lesson.activity==='alphabet-card' ? 'Letter ' : 'Garden ')+(roundIndex+1)+' of '+lesson.rounds.length;
   element('prompt').textContent = current.prompt;
   element('feedback').textContent = current.instruction;
   element('feedback').classList.remove('success-feedback');
   element('next').hidden = true;
   element('bugs').replaceChildren();
-  element('bugs').classList.remove('ten-frame','letter-board','math-board','compare-board','equation-board');
+  element('bugs').classList.remove('ten-frame','letter-board','alphabet-board','math-board','compare-board','equation-board');
   element('choices').replaceChildren();
   if (lesson.activity === 'ten-frame') renderTenFrameRound(current);
   else if (lesson.activity === 'letter-choice') renderLetterRound(current);
+  else if (lesson.activity === 'alphabet-card') renderAlphabetRound(current);
   else if (lesson.activity === 'compare') renderCompareRound(current);
   else if (lesson.activity === 'addition' || lesson.activity === 'subtraction') renderEquationRound(current);
   else renderCountRound(current);
@@ -407,11 +472,13 @@ function navigate() {
     search();
   }
   if (page === 'lesson') {
-    roundIndex = 0;
+    const savedRound = Number(stored('garden.round.'+lesson.id));
+    roundIndex = !isComplete(lesson) && Number.isInteger(savedRound) && savedRound>0 && savedRound<lesson.rounds.length ? savedRound : 0;
     element('lessonKicker').textContent = subject.eyebrow;
     element('lessonTitle').textContent = lesson.title;
     element('listen').textContent = subject.id==='gujarati' ? '🔊 સાંભળો' : '🔊 Read to me';
-    startTracker();
+    document.querySelector('.tracker-finished span').textContent = lesson.activity==='alphabet-card' ? 'Letters learned' : 'Gardens finished';
+    startTracker(roundIndex);
     renderRound();
   } else stopTimer();
   element('brand').href = '#subject/'+(subject?.id||garden?.defaultSubjectId||'maths');
