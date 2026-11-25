@@ -315,6 +315,33 @@ function prepareMathRound(current) {
     current.hint = 'Try again. Start with '+current.left+' and take away '+current.right+'.';
     current.praise = current.left+' minus '+current.right+' equals '+current.target+'.';
   }
+  if (lesson.activity === 'number-line') {
+    const adding = lesson.operation==='add';
+    current.target = adding ? current.start+current.jump : current.start-current.jump;
+    current.prompt = 'Where will the frog land?';
+    current.instruction = 'Start at '+current.start+'. Make '+current.jump+' hop'+(current.jump===1?'':'s')+' '+(adding?'forward':'backward')+'. Choose the landing number.';
+    current.hint = 'Try again. Start at '+current.start+' and count '+(adding?'forward':'backward')+' '+current.jump+' hops.';
+    current.praise = current.start+(adding?' plus ':' minus ')+current.jump+' equals '+current.target+'.';
+  }
+  if (lesson.activity === 'fact-family') {
+    const total = current.left+current.right;
+    const facts = {
+      'add-left': [current.left+' + '+current.right,total],
+      'add-right': [current.right+' + '+current.left,total],
+      'subtract-left': [total+' − '+current.left,current.right],
+      'subtract-right': [total+' − '+current.right,current.left]
+    };
+    const [expression,result] = facts[current.kind];
+    current.total = total;
+    current.target = expression+' = '+result;
+    const choices = [current.target,expression+' = '+(result+1),expression+' = '+Math.max(0,result-1)];
+    const shift = roundIndex%choices.length;
+    current.choices = choices.slice(shift).concat(choices.slice(0,shift));
+    current.prompt = 'Which fact belongs in this house?';
+    current.instruction = 'Use the three house numbers to choose the true number sentence.';
+    current.hint = 'Try again. The family numbers are '+current.left+', '+current.right+', and '+total+'.';
+    current.praise = 'Yes! '+current.target+'.';
+  }
 }
 
 function checkMathAnswer(value,current) {
@@ -372,6 +399,63 @@ function renderEquationRound(current) {
   for (const value of current.choices) element('choices').append(makeButton(value,() => checkMathAnswer(value,current)));
 }
 
+function renderNumberLineRound(current) {
+  const board = element('bugs');
+  board.classList.add('math-board','number-line-board');
+  const adding = lesson.operation==='add';
+  const equation = document.createElement('div');
+  equation.className = 'number-line-equation';
+  equation.textContent = current.start+(adding?' + ':' − ')+current.jump+' = ?';
+  const direction = document.createElement('div');
+  direction.className = 'hop-direction';
+  direction.textContent = '🐸 Start at '+current.start+' · '+current.jump+' hops '+(adding?'forward':'backward');
+  const line = document.createElement('div');
+  line.className = 'number-line-points';
+  for (let value=0; value<=20; value++) {
+    const point = document.createElement('span');
+    point.textContent = value;
+    if (value===current.start) point.classList.add('start-point');
+    const inPath = adding
+      ? value>current.start && value<=current.target
+      : value<current.start && value>=current.target;
+    if (inPath) point.classList.add('hop-point');
+    if (value===current.target) point.classList.add('landing-point');
+    line.append(point);
+  }
+  board.append(equation,direction,line);
+  requestAnimationFrame(() => {
+    const midpoint = (current.start+current.target)/2;
+    line.scrollLeft = Math.max(0,midpoint*30-line.clientWidth/2);
+  });
+  for (const value of current.choices) element('choices').append(makeButton(value,() => checkMathAnswer(value,current)));
+}
+
+function renderFactFamilyRound(current) {
+  const board = element('bugs');
+  board.classList.add('math-board','fact-family-board');
+  const house = document.createElement('div');
+  house.className = 'family-house';
+  const roof = document.createElement('strong');
+  roof.textContent = current.total;
+  roof.className = 'family-total';
+  const left = document.createElement('span');
+  left.textContent = current.left;
+  const right = document.createElement('span');
+  right.textContent = current.right;
+  const rooms = document.createElement('div');
+  rooms.className = 'family-rooms';
+  rooms.append(left,right);
+  house.append(roof,rooms);
+  const note = document.createElement('p');
+  note.textContent = 'These three numbers are one fact family.';
+  board.append(house,note);
+  for (const value of current.choices) {
+    const choice = makeButton(value,() => checkMathAnswer(value,current));
+    choice.className = 'equation-choice';
+    element('choices').append(choice);
+  }
+}
+
 function finishRound(message,spokenMessage=message) {
   finishedRound = true;
   answered++;
@@ -404,13 +488,15 @@ function renderRound() {
   element('feedback').classList.remove('success-feedback');
   element('next').hidden = true;
   element('bugs').replaceChildren();
-  element('bugs').classList.remove('ten-frame','letter-board','alphabet-board','math-board','compare-board','equation-board');
+  element('bugs').classList.remove('ten-frame','letter-board','alphabet-board','math-board','compare-board','equation-board','number-line-board','fact-family-board');
   element('choices').replaceChildren();
   if (lesson.activity === 'ten-frame') renderTenFrameRound(current);
   else if (lesson.activity === 'letter-choice') renderLetterRound(current);
   else if (lesson.activity === 'alphabet-card') renderAlphabetRound(current);
   else if (lesson.activity === 'compare') renderCompareRound(current);
   else if (lesson.activity === 'addition' || lesson.activity === 'subtraction') renderEquationRound(current);
+  else if (lesson.activity === 'number-line') renderNumberLineRound(current);
+  else if (lesson.activity === 'fact-family') renderFactFamilyRound(current);
   else renderCountRound(current);
   if (!element('parentTools').hidden) {
     const firstMatch = lesson.rounds.findIndex(item => item.letter===current.letter);
