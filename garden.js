@@ -342,6 +342,35 @@ function prepareMathRound(current) {
     current.hint = 'Try again. The family numbers are '+current.left+', '+current.right+', and '+total+'.';
     current.praise = 'Yes! '+current.target+'.';
   }
+  if (lesson.activity === 'doubles') {
+    current.target = current.number*2;
+    current.prompt = 'What is the double?';
+    current.instruction = 'Count both equal flower rows. Choose how many flowers there are altogether.';
+    current.hint = 'Try again. Count '+current.number+' flowers, then '+current.number+' more.';
+    current.praise = current.number+' plus '+current.number+' equals '+current.target+'. That is a double!';
+  }
+  if (lesson.activity === 'missing-addend') {
+    current.target = current.total-current.known;
+    current.prompt = 'How many are hiding?';
+    current.instruction = 'There are '+current.total+' garden friends altogether. '+current.known+' are showing. Choose how many are hiding.';
+    current.hint = 'Try again. Count on from '+current.known+' until you reach '+current.total+'.';
+    current.praise = current.known+' plus '+current.target+' equals '+current.total+'. You found the missing number!';
+  }
+  if (lesson.activity === 'story-problem') {
+    const adding = current.operation==='add';
+    current.target = adding ? current.left+current.right : current.left-current.right;
+    current.story = adding
+      ? current.left+' '+current.thing+' were in the garden. '+current.right+' more came to join them. How many are there now?'
+      : current.left+' '+current.thing+' were in the garden. '+current.right+' went away. How many are left?';
+    current.prompt = 'Listen to the garden story.';
+    current.instruction = current.story;
+    current.hint = adding
+      ? 'Try again. Start with '+current.left+' and add '+current.right+' more.'
+      : 'Try again. Start with '+current.left+' and take away '+current.right+'.';
+    current.praise = adding
+      ? current.left+' plus '+current.right+' equals '+current.target+'.'
+      : current.left+' minus '+current.right+' equals '+current.target+'.';
+  }
 }
 
 function checkMathAnswer(value,current) {
@@ -456,6 +485,75 @@ function renderFactFamilyRound(current) {
   }
 }
 
+function appendMathChoices(current) {
+  for (const value of current.choices) element('choices').append(makeButton(value,() => checkMathAnswer(value,current)));
+}
+
+function renderDoublesRound(current) {
+  const board = element('bugs');
+  board.classList.add('math-board','doubles-board');
+  const rows = document.createElement('div');
+  rows.className = 'double-rows';
+  for (let row=0; row<2; row++) {
+    const flowerRow = document.createElement('div');
+    flowerRow.className = 'double-row';
+    flowerRow.textContent = current.number ? '🌻'.repeat(current.number) : 'Empty row';
+    rows.append(flowerRow);
+  }
+  const equation = document.createElement('div');
+  equation.className = 'equation-text';
+  equation.textContent = current.number+' + '+current.number+' = ?';
+  board.append(rows,equation);
+  appendMathChoices(current);
+}
+
+function renderMissingAddendRound(current) {
+  const board = element('bugs');
+  board.classList.add('math-board','missing-board');
+  const equation = document.createElement('div');
+  equation.className = 'equation-text';
+  equation.textContent = current.known+' + ? = '+current.total;
+  const friends = document.createElement('div');
+  friends.className = 'missing-friends';
+  for (let index=0; index<current.total; index++) {
+    const friend = document.createElement('span');
+    friend.textContent = index<current.known ? '🌼' : '🍃';
+    friend.setAttribute('aria-label',index<current.known ? 'showing flower' : 'hidden friend');
+    friends.append(friend);
+  }
+  const note = document.createElement('p');
+  note.textContent = current.known+' showing · '+current.total+' altogether';
+  board.append(equation,friends,note);
+  appendMathChoices(current);
+}
+
+function renderStoryProblemRound(current) {
+  const board = element('bugs');
+  board.classList.add('math-board','story-board');
+  const story = document.createElement('p');
+  story.className = 'story-text';
+  story.textContent = current.story;
+  const picture = document.createElement('div');
+  picture.className = 'story-picture';
+  if (current.operation==='add') {
+    const first = document.createElement('span');
+    first.textContent = current.emoji.repeat(current.left);
+    const joining = document.createElement('span');
+    joining.className = 'joining-group';
+    joining.textContent = current.emoji.repeat(current.right);
+    picture.append(first,joining);
+  } else {
+    for (let index=0; index<current.left; index++) {
+      const friend = document.createElement('span');
+      friend.textContent = current.emoji;
+      if (index>=current.target) friend.className = 'went-away';
+      picture.append(friend);
+    }
+  }
+  board.append(story,picture);
+  appendMathChoices(current);
+}
+
 function finishRound(message,spokenMessage=message) {
   finishedRound = true;
   answered++;
@@ -488,7 +586,7 @@ function renderRound() {
   element('feedback').classList.remove('success-feedback');
   element('next').hidden = true;
   element('bugs').replaceChildren();
-  element('bugs').classList.remove('ten-frame','letter-board','alphabet-board','math-board','compare-board','equation-board','number-line-board','fact-family-board');
+  element('bugs').classList.remove('ten-frame','letter-board','alphabet-board','math-board','compare-board','equation-board','number-line-board','fact-family-board','doubles-board','missing-board','story-board');
   element('choices').replaceChildren();
   if (lesson.activity === 'ten-frame') renderTenFrameRound(current);
   else if (lesson.activity === 'letter-choice') renderLetterRound(current);
@@ -497,6 +595,9 @@ function renderRound() {
   else if (lesson.activity === 'addition' || lesson.activity === 'subtraction') renderEquationRound(current);
   else if (lesson.activity === 'number-line') renderNumberLineRound(current);
   else if (lesson.activity === 'fact-family') renderFactFamilyRound(current);
+  else if (lesson.activity === 'doubles') renderDoublesRound(current);
+  else if (lesson.activity === 'missing-addend') renderMissingAddendRound(current);
+  else if (lesson.activity === 'story-problem') renderStoryProblemRound(current);
   else renderCountRound(current);
   if (!element('parentTools').hidden) {
     const firstMatch = lesson.rounds.findIndex(item => item.letter===current.letter);
